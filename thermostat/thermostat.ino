@@ -13,6 +13,8 @@ byte DS18B20_addr[8];
 DebouncingButton down_button(DOWN);
 DebouncingButton up_button(UP);
 
+bool should_upload = false;
+
 void error_and_halt(const char* str) {
     Serial.print("error: ");
     Serial.println(str);
@@ -85,7 +87,8 @@ void convert_temperature(const uint8_t lsb, const uint8_t msb,
 
 void setup() 
 {
-    Serial.begin(115200);
+    // Arduino serial RX drops bytes if run faster than 19.2kbps
+    Serial.begin(19200);
     initJoy();
     sLCD.initialize(9600);
     init_DS18B20(DS18B20_RESOLUTION_BITS);
@@ -161,8 +164,44 @@ void loop(void)
                         DS18B20_RESOLUTION_BITS);
     
     display_temp_slcd(integral, fractional);
-    upload_temperature_data(integral, fractional,
-                            EEPROM.read(SETPOINT_EEPROM_ADDR));
+    if (should_upload) {
+        upload_temperature_data(integral, fractional,
+                                EEPROM.read(SETPOINT_EEPROM_ADDR));
+        should_upload = false;
+    }
     down_button.clear();
     up_button.clear();
 };
+
+void serialEvent() {
+    enum {STATE_READ_BEGIN, STATE_READ_R, STATE_READ_E,
+          STATE_READ_A};
+    static byte state = STATE_READ_BEGIN;
+
+    while (Serial.available()) {
+        byte next = Serial.read();
+        switch (state) {
+            case STATE_READ_BEGIN:
+                if (next == 'r') state = STATE_READ_R;
+                break;
+            case STATE_READ_R:
+                if (next == 'e') state = STATE_READ_E;
+                else if (next == 'r') state = STATE_READ_R;
+                else state = STATE_READ_BEGIN;
+                break;
+            case STATE_READ_E:
+                if (next == 'a') state = STATE_READ_A;
+                else if (next == 'r') state = STATE_READ_R;
+                else state = STATE_READ_BEGIN;
+                break;
+            case STATE_READ_A:
+                if (next == 'd') {
+                    state = STATE_READ_BEGIN;
+                    should_upload = true;
+                }
+                else if (next == 'r') state = STATE_READ_R;
+                else state = STATE_READ_BEGIN;
+                break;
+        }
+    }
+}
