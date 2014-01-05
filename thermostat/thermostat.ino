@@ -185,9 +185,14 @@ void display_temp_slcd(int8_t integral, uint16_t fractional)
       case '`':
           spinner = 'l'; break;
     }
-    sprintf(line0, "Temp: % 3d.%04u C", integral, fractional);
-    sprintf(line1, "%c    Set: % 4d C",
-            spinner, EEPROM.read(SETPOINT_EEPROM_ADDR));
+    uint16_t epsilon = fractional % 1000;
+    fractional /= 1000;
+    if (epsilon >= 500) fractional++;
+
+    sprintf(line0, "%c Temp: % 4d.%01u C",
+            spinner, integral, fractional);
+    sprintf(line1, "   Set: % 4d.0 C",
+            EEPROM.read(SETPOINT_EEPROM_ADDR));
 
     clear_lcd();
     sLCD.write(COMMAND);
