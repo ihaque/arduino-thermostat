@@ -96,6 +96,9 @@ void setup()
 
 void display_temp_slcd(int8_t integral, uint16_t fractional) 
 {
+    /* Fractional is degC * 1e-4. Round to one digit past the decimal
+     * and display on the sLCD.
+     */
     static int8_t last_setpoint = -1;
     static int8_t last_integral = -127;
     static int8_t last_rounded_fractional = -1;
