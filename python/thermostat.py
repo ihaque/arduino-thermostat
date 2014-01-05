@@ -44,42 +44,42 @@ class NonblockingPipeProcess(Popen):
                 stdout=PIPE,
                 stderr=PIPE,
                 *args, **kwargs)
+        self.queues = {}
+        self.setup_queue('stdout', self.stdout)
+        self.setup_queue('stderr', self.stderr)
+        for queue in self.queues.itervalues():
+            queue['thread'].start()
 
-        self._stdout_queue = Queue()
-        self._stdout_flag = Flag()
-        self._stdout_thread = Thread(
+    def setup_queue(self, name, stream):
+        queue = Queue()
+        flag = Flag()
+        thread = Thread(
             target=NonblockingPipeProcess.enqueue_output,
             args=(self.stdout, self._stdout_queue, self._stdout_flag))
-        self._stdout_thread.daemon = True
+        thread.daemon = True
 
-        self._stderr_queue = Queue()
-        self._stderr_flag = Flag()
-        self._stderr_thread = Thread(
-            target=NonblockingPipeProcess.enqueue_output,
-            args=(self.stderr, self._stderr_queue, self._stderr_flag))
-        self._stderr_thread.daemon = True
-        
-        self._stdout_thread.start()
-        self._stderr_thread.start()
-    
+        self.queues[name] = {}
+        self.queues[name]['queue'] = queue
+        self.queues[name]['flag'] = flag
+        self.queues[name]['thread'] = thread
+
     def terminate(self):
-        self._stdout_flag.set()
-        self._stderr_flag.set()
+        for queue in self.queues.itervalues():
+            queue['flag'].set()
+            queue['thread'].join()
         super(NonblockingPipeProcess, self).terminate()
-        self._stdout_thread.join()
-        self._stderr_thread.join()
 
     def _check_q(self, queue):
         try:
-            return queue.get_nowait()
+            return self.queues[queue]['queue'].get_nowait()
         except Empty:
             return None
     
     def check_stdout(self):
-        return self._check_q(self._stdout_queue)
+        return self._check_q('stdout')
 
     def check_stderr(self):
-        return self._check_q(self._stderr_queue)
+        return self._check_q('stderr')
 
 
 class CPUMiner(object):
@@ -131,15 +131,11 @@ def load_mining_config(config_file='miners.cfg'):
         assert miner_name not in miners
         miner_type = parser.get(miner_name, 'type')
         if miner_type == 'cpu':
-            executable = parser.get(miner_name, 'executable')
-            server = parser.get(miner_name, 'server')
-            username = parser.get(miner_name, 'username')
-            password = parser.get(miner_name, 'password')
             miners[miner_name] = CPUMiner(
-                executable=executable,
-                serverURI=server,
-                username=username,
-                password=password)
+                executable=parser.get(miner_name, 'executable'),
+                serverURI=parser.get(miner_name, 'server'),
+                username=parser.get(miner_name, 'username'),
+                password=parser.get(miner_name, 'password'))
         else:
             raise ValueError('Did not understand miner type %s' % miner_type)
     return miners
