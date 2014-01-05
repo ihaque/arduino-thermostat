@@ -182,6 +182,10 @@ void display_temp_slcd(int8_t integral, uint16_t fractional)
     const uint16_t epsilon = fractional % 1000;
     fractional /= 1000;
     if (epsilon >= 500) fractional++;
+    if (fractional == 10) {
+        fractional = 0;
+        integral++;
+    }
 
     if (integral != last_integral || fractional != last_rounded_fractional)
     {
