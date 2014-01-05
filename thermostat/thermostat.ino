@@ -3,67 +3,22 @@
 
 #include "defaults.h"
 #include "pc_interface.h"
-
-SoftwareSerial sLCD =  SoftwareSerial(0, CAN_BUS_LCD_TX); 
-#define COMMAND 0xFE
-#define CLEAR   0x01
-#define LINE0   0x80
-#define LINE1   0xC0
-
-
+#include "SerialLCD.h"
 #include "OneWire.h"
+#include "DebouncingButton.h"
+
+SerialLCD sLCD(CAN_BUS_LCD_TX);
 OneWire ds(DS18B20_DQ);
 byte DS18B20_addr[8];
-
-class DebouncingButton
-{
-    private:
-    byte last_button_state;
-    byte button_state;
-    byte pin;
-    byte pressed_state;
-    void check_state()
-    {
-        unsigned long last_debounce_time = 0;
-        const unsigned long debounce_delay_ms = 5;
-        byte current_state = digitalRead(pin);
-        if (current_state != last_button_state) {
-            last_debounce_time = millis();
-        }
-
-        if ((millis() - last_debounce_time) > debounce_delay_ms) {
-            button_state = current_state;
-        }
-        last_button_state = current_state;
-    }
-
-    public:
-    DebouncingButton(byte button_pin): pin(button_pin), pressed_state(0) {};
-    byte state() {
-        check_state();
-        return button_state;
-    }
-    bool was_pressed() {
-        byte old_state = button_state;
-        check_state();
-        return (button_state == pressed_state && old_state != button_state);
-    }
-    void clear() {
-        // To "reset" the button on a display refresh so we can repeat
-        button_state = !button_state;
-    }
-};
-
 DebouncingButton down_button(DOWN);
 DebouncingButton up_button(UP);
 
-// TODO store error strings in flash to save RAM
 void error_and_halt(const char* str) {
     Serial.print("error: ");
     Serial.println(str);
     
-    clear_lcd();
-    sLCD.print(str);
+    sLCD.clear();
+    sLCD.writeln(0, str);
   
     while(1);
 }
@@ -74,38 +29,6 @@ void initJoy(void) {
     pinMode(LEFT, INPUT_PULLUP);
     pinMode(RIGHT, INPUT_PULLUP);
     pinMode(CLICK, INPUT_PULLUP);
-    return;
-}
-
-void initSD() {
-    #ifdef _USE_SD_
-    pinMode(CAN_BUS_SD_CS, OUTPUT);
-    if (!_sdfat.begin(CAN_BUS_SD_CS)) {
-      Serial.println("SD initialization failed!");
-      return;
-    }
-    Serial.println("SD initialization success");
-    #endif
-    return;
-}
-
-void initLCD(unsigned int baud) {
-    byte speed_control;
-    switch (baud) {
-      case 2400U: speed_control = 0x0B; break;
-      case 4800U: speed_control = 0x0C; break;
-      case 9600U: speed_control = 0x0D; break;
-      case 14400U: speed_control = 0x0E; break;
-      case 19200U: speed_control = 0x0F; break;
-      case 38400U: speed_control = 0x10; break;
-      default: baud = 9600U; speed_control = 0x0D; break;
-    }
-
-    sLCD.begin(9600U);
-    sLCD.write(0x7C);
-    sLCD.write(speed_control);
-    delay(50); // Delay, or else LCD goes blank
-    sLCD.begin(baud);
     return;
 }
 
@@ -164,9 +87,7 @@ void setup()
 {
     Serial.begin(115200);
     initJoy();
-    initSD();
-    initLCD(9600);
-    clear_lcd();
+    sLCD.initialize(9600);
     init_DS18B20(DS18B20_RESOLUTION_BITS);
 }
 
@@ -187,21 +108,15 @@ void display_temp_slcd(int8_t integral, uint16_t fractional)
         integral++;
     }
 
-    if (integral != last_integral || fractional != last_rounded_fractional)
-    {
+    if (integral != last_integral || fractional != last_rounded_fractional) {
         sprintf(line, "  Temp: % 4d.%01u C", integral, fractional);
-        sLCD.write(COMMAND);
-        sLCD.write(LINE0);
-        sLCD.print(line);
+        sLCD.writeln(0, line);
         last_integral = integral;
         last_rounded_fractional = fractional;
     }
     if (setpoint != last_setpoint) {
-        sprintf(line, "   Set: % 4d.0 C",
-                EEPROM.read(SETPOINT_EEPROM_ADDR));
-        sLCD.write(COMMAND);
-        sLCD.write(LINE1);
-        sLCD.print(line);
+        sprintf(line, "   Set: % 4d.0 C", EEPROM.read(SETPOINT_EEPROM_ADDR));
+        sLCD.writeln(1, line);
         last_setpoint = setpoint;
     }
 }
@@ -251,9 +166,3 @@ void loop(void)
     down_button.clear();
     up_button.clear();
 };
-
-void clear_lcd(void)
-{
-    sLCD.write(COMMAND);
-    sLCD.write(CLEAR);
-}
