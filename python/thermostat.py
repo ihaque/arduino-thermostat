@@ -44,18 +44,21 @@ class NonblockingPipeProcess(Popen):
                 stdout=PIPE,
                 stderr=PIPE,
                 *args, **kwargs)
+
         self._stdout_queue = Queue()
-        self._stderr_queue = Queue()
         self._stdout_flag = Flag()
-        self._stderr_flag = Flag()
         self._stdout_thread = Thread(
             target=NonblockingPipeProcess.enqueue_output,
             args=(self.stdout, self._stdout_queue, self._stdout_flag))
         self._stdout_thread.daemon = True
+
+        self._stderr_queue = Queue()
+        self._stderr_flag = Flag()
         self._stderr_thread = Thread(
             target=NonblockingPipeProcess.enqueue_output,
             args=(self.stderr, self._stderr_queue, self._stderr_flag))
         self._stderr_thread.daemon = True
+        
         self._stdout_thread.start()
         self._stderr_thread.start()
     
@@ -63,14 +66,8 @@ class NonblockingPipeProcess(Popen):
         self._stdout_flag.set()
         self._stderr_flag.set()
         super(NonblockingPipeProcess, self).terminate()
-        try:
-            self._stdout_thread.join()
-        except RuntimeError:
-            pass
-        try:
-            self._stderr_thread.join()
-        except RuntimeError:
-            pass
+        self._stdout_thread.join()
+        self._stderr_thread.join()
 
     def _check_q(self, queue):
         try:
@@ -153,7 +150,7 @@ def main():
     miners = load_mining_config()
     for miner in miners.itervalues():
         miner.start()
-    for i in range(50):
+    for i in range(5):
         print sensor.read_frame()
         for miner_name, miner in miners.iteritems():
             line = miner.check_stderr()
