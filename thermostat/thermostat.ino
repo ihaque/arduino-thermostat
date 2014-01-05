@@ -172,35 +172,34 @@ void setup()
 
 void display_temp_slcd(int8_t integral, uint16_t fractional) 
 {
-    char line0[17];
-    char line1[17];
-    static char spinner = 'l';
-    switch (spinner) {
-      case 'l':
-          spinner = '/'; break;
-      case '/':
-          spinner = '-'; break;
-      case '-':
-          spinner = '`'; break;
-      case '`':
-          spinner = 'l'; break;
-    }
-    uint16_t epsilon = fractional % 1000;
+    static int8_t last_setpoint = -1;
+    static int8_t last_integral = -127;
+    static int8_t last_rounded_fractional = -1;
+
+    char line[17];
+
+    const int8_t setpoint = EEPROM.read(SETPOINT_EEPROM_ADDR);
+    const uint16_t epsilon = fractional % 1000;
     fractional /= 1000;
     if (epsilon >= 500) fractional++;
 
-    sprintf(line0, "%c Temp: % 4d.%01u C",
-            spinner, integral, fractional);
-    sprintf(line1, "   Set: % 4d.0 C",
-            EEPROM.read(SETPOINT_EEPROM_ADDR));
-
-    clear_lcd();
-    sLCD.write(COMMAND);
-    sLCD.write(LINE0);
-    sLCD.print(line0);
-    sLCD.write(COMMAND);
-    sLCD.write(LINE1);
-    sLCD.print(line1);
+    if (integral != last_integral || fractional != last_rounded_fractional)
+    {
+        sprintf(line, "  Temp: % 4d.%01u C", integral, fractional);
+        sLCD.write(COMMAND);
+        sLCD.write(LINE0);
+        sLCD.print(line);
+        last_integral = integral;
+        last_rounded_fractional = fractional;
+    }
+    if (setpoint != last_setpoint) {
+        sprintf(line, "   Set: % 4d.0 C",
+                EEPROM.read(SETPOINT_EEPROM_ADDR));
+        sLCD.write(COMMAND);
+        sLCD.write(LINE1);
+        sLCD.print(line);
+        last_setpoint = setpoint;
+    }
 }
 
 void delay_with_input(unsigned long delay_ms) {
