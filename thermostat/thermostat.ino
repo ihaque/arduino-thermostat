@@ -1,4 +1,5 @@
 #include <SoftwareSerial.h>
+#include <EEPROM.h>
 
 #include "defaults.h"
 #include "pc_interface.h"
@@ -13,6 +14,48 @@ SoftwareSerial sLCD =  SoftwareSerial(0, CAN_BUS_LCD_TX);
 #include "OneWire.h"
 OneWire ds(DS18B20_DQ);
 byte DS18B20_addr[8];
+
+class DebouncingButton
+{
+    private:
+    byte last_button_state;
+    byte button_state;
+    byte pin;
+    byte pressed_state;
+    void check_state()
+    {
+        unsigned long last_debounce_time = 0;
+        const unsigned long debounce_delay_ms = 5;
+        byte current_state = digitalRead(pin);
+        if (current_state != last_button_state) {
+            last_debounce_time = millis();
+        }
+
+        if ((millis() - last_debounce_time) > debounce_delay_ms) {
+            button_state = current_state;
+        }
+        last_button_state = current_state;
+    }
+
+    public:
+    DebouncingButton(byte button_pin): pin(button_pin), pressed_state(0) {};
+    byte state() {
+        check_state();
+        return button_state;
+    }
+    bool was_pressed() {
+        byte old_state = button_state;
+        check_state();
+        return (button_state == pressed_state && old_state != button_state);
+    }
+    void clear() {
+        // To "reset" the button on a display refresh so we can repeat
+        button_state = !button_state;
+    }
+};
+
+DebouncingButton down_button(DOWN);
+DebouncingButton up_button(UP);
 
 // TODO store error strings in flash to save RAM
 void error_and_halt(const char* str) {
@@ -130,26 +173,49 @@ void setup()
 void display_temp_slcd(int8_t integral, uint16_t fractional) 
 {
     char line0[17];
+    char line1[17];
     static char spinner = 'l';
-    sprintf(line0, "Temp: % 3d.%04u C", integral, fractional);
     switch (spinner) {
-      case '-':
-          spinner = '`'; break;
-      case '`':
-          spinner = 'l'; break;
       case 'l':
           spinner = '/'; break;
       case '/':
           spinner = '-'; break;
+      case '-':
+          spinner = '`'; break;
+      case '`':
+          spinner = 'l'; break;
     }
-    clear_lcd();
+    sprintf(line0, "Temp: % 3d.%04u C", integral, fractional);
+    sprintf(line1, "%c    Set: % 4d C",
+            spinner, EEPROM.read(SETPOINT_EEPROM_ADDR));
 
+    clear_lcd();
     sLCD.write(COMMAND);
     sLCD.write(LINE0);
     sLCD.print(line0);
     sLCD.write(COMMAND);
     sLCD.write(LINE1);
-    sLCD.write(spinner);
+    sLCD.print(line1);
+}
+
+void delay_with_input(unsigned long delay_ms) {
+    unsigned long delay_start = millis();
+
+    int8_t setpoint = EEPROM.read(SETPOINT_EEPROM_ADDR);
+    if (setpoint > 50) setpoint = 50;
+    if (setpoint < 0) setpoint = 0;
+
+    while ((millis() - delay_start) < delay_ms) {
+        if (up_button.was_pressed() && setpoint < 50) {
+            setpoint++;
+        } else if (down_button.was_pressed() && setpoint > 0) {
+            setpoint--;
+        }
+    }
+    if (setpoint != EEPROM.read(SETPOINT_EEPROM_ADDR)) {
+        EEPROM.write(SETPOINT_EEPROM_ADDR, setpoint);
+    }
+    return;
 }
 
 void loop(void) 
@@ -157,7 +223,7 @@ void loop(void)
     ds.reset();
     ds.select(DS18B20_addr);
     ds.write(0x44); // start temperature conversion
-    delay(DS18B20_TCONV_MS);
+    delay_with_input(DS18B20_TCONV_MS);
     
     ds.reset();
     ds.select(DS18B20_addr);
@@ -172,7 +238,10 @@ void loop(void)
                         DS18B20_RESOLUTION_BITS);
     
     display_temp_slcd(integral, fractional);
-    upload_temperature_data(integral, fractional, 0);
+    upload_temperature_data(integral, fractional,
+                            EEPROM.read(SETPOINT_EEPROM_ADDR));
+    down_button.clear();
+    up_button.clear();
 };
 
 void clear_lcd(void)

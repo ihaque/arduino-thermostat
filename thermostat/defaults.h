@@ -68,4 +68,6 @@
     #error Invalid DS18B20 resolution
 #endif
 
+#define SETPOINT_EEPROM_ADDR 0
+
 #endif	// DEFAULTS_H
