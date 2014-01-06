@@ -34,7 +34,7 @@ void initJoy(void) {
     return;
 }
 
-void init_DS18B20(uint8_t resolution) {
+void init_DS18B20() {
     // This code assumes there is exactly one 1-wire device on the bus
     // and it is a DS18B20
     if (!ds.search(DS18B20_addr)) {
@@ -91,7 +91,7 @@ void setup()
     Serial.begin(19200);
     initJoy();
     sLCD.initialize(9600);
-    init_DS18B20(DS18B20_RESOLUTION_BITS);
+    init_DS18B20();
 }
 
 void display_temp_slcd(int8_t integral, uint16_t fractional) 
