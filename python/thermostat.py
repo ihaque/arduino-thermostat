@@ -4,6 +4,8 @@ from subprocess import Popen
 from subprocess import PIPE
 from threading import Lock
 from threading import Thread
+from time import sleep
+from time import time
 
 from arduino import ArduinoSensor
 
@@ -55,7 +57,7 @@ class NonblockingPipeProcess(Popen):
         flag = Flag()
         thread = Thread(
             target=NonblockingPipeProcess.enqueue_output,
-            args=(self.stdout, self._stdout_queue, self._stdout_flag))
+            args=(stream, queue, flag))
         thread.daemon = True
 
         self.queues[name] = {}
@@ -64,10 +66,12 @@ class NonblockingPipeProcess(Popen):
         self.queues[name]['thread'] = thread
 
     def terminate(self):
+        # Have to terminate the process first so that the threads'
+        # pipe reads terminate, and they get the signal to die.
+        super(NonblockingPipeProcess, self).terminate()
         for queue in self.queues.itervalues():
             queue['flag'].set()
             queue['thread'].join()
-        super(NonblockingPipeProcess, self).terminate()
 
     def _check_q(self, queue):
         try:
@@ -88,6 +92,7 @@ class CPUMiner(object):
                      '-o', serverURI, '-u', username,
                      '-p', password]
         self.started = False
+        self.process = None
 
     def start(self):
         if self.started:
@@ -107,6 +112,10 @@ class CPUMiner(object):
             self.process.wait()
             self.started = False
             self.process = None
+        else:
+            print self.process
+            print self.started
+            print "Unable to terminate!"
 
     def check_stderr(self):
         if self.process is not None:
@@ -141,21 +150,55 @@ def load_mining_config(config_file='miners.cfg'):
     return miners
 
 
+class Thermostat(object):
+    def __init__(self, port, speed=19200):
+        self.sensor = ArduinoSensor(port, speed)
+        self.dead_zone = 1
+
+    def check(self):
+        sense = self.sensor.read_frame()
+        temp = sense['temperature']
+        setp = sense['setpoint']
+        if (temp - setp) > self.dead_zone:
+            # Temperature is too high
+            return temp, 1
+        elif (setp - temp) > self.dead_zone:
+            # Temperature is too low
+            return temp, -1
+        else:
+            # We're within the dead zone
+            return temp, 0
+
+
 def main():
-    sensor = ArduinoSensor('COM7', speed=19200)
+    thermostat = Thermostat('COM7', speed=19200)
     miners = load_mining_config()
-    for miner in miners.itervalues():
-        miner.start()
-    for i in range(5):
-        print sensor.read_frame()
+    
+    last_checked_time = 0
+    control_interval = 60  # Seconds
+    while True:
+        # Check temperature
+        if time() - last_checked_time > control_interval:
+            last_checked_time = time()
+            temperature, control = thermostat.check()
+            control_string = {0: 'OK', 1: 'too high', -1: 'too low'}[control]
+            print '---- Temperature check ----'
+            print 'Current temp:', temperature, 'C,', control_string
+            for name, miner in miners.iteritems():
+                if miner.started and control > 0:
+                    print 'Stopping', name
+                    miner.stop()
+                elif not miner.started and control < 0:
+                    print 'Starting', name
+                    miner.start()
+            print '---------------------------'
+        # Output from each miner
         for miner_name, miner in miners.iteritems():
             line = miner.check_stderr()
             while line is not None:
                 print miner_name, line.rstrip()
                 line = miner.check_stderr()
-    for miner in miners.itervalues():
-        miner.stop()
-    
+        sleep(1)
 
 if __name__ == '__main__':
     main()
