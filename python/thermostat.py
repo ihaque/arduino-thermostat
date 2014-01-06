@@ -2,12 +2,29 @@ from ConfigParser import RawConfigParser
 from Queue import Queue, Empty
 from subprocess import Popen
 from subprocess import PIPE
+from sys import stdin
 from threading import Lock
 from threading import Thread
 from time import sleep
 from time import time
 
 from arduino import ArduinoSensor
+
+import platform
+if platform.system() == "Windows":
+    from msvcrt import kbhit
+else:
+    import select
+    def kbhit():
+        inrdy, _, __ = select.select([sys.stdin], [], [], 0.001)
+        return len(inrdy) > 0
+
+
+def check_keyboard():
+    if kbhit():
+        raise KeyboardInterrupt
+    return
+
 
 class Flag(object):
     def __init__(self):
@@ -177,6 +194,10 @@ def main():
     last_checked_time = 0
     control_interval = 60  # Seconds
     while True:
+        try:
+            check_keyboard()
+        except KeyboardInterrupt:
+            break
         # Check temperature
         if time() - last_checked_time > control_interval:
             last_checked_time = time()
@@ -199,6 +220,9 @@ def main():
                 print miner_name, line.rstrip()
                 line = miner.check_stderr()
         sleep(1)
+
+    for miner in miners.itervalues():
+        miner.stop()
 
 if __name__ == '__main__':
     main()
