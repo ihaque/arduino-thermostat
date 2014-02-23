@@ -1,4 +1,5 @@
 from ConfigParser import RawConfigParser
+from datetime import datetime
 from sys import stdin
 from time import sleep
 from time import time
@@ -35,7 +36,8 @@ def load_mining_config(config_file='miners.cfg'):
         'cgminer-remote': (RemoteCGMiner, ['address', 'pause_intensity',
                                            'full_intensity']),
         'cgminer': (CGMiner, ['executable', 'serverURI', 'username', 'password',
-                              'pause_intensity', 'full_intensity']),
+                              'pause_intensity', 'full_intensity',
+                              'delay', 'work_unit', 'thread_concurrency']),
     }
 
     miners = {}
@@ -58,7 +60,7 @@ def load_mining_config(config_file='miners.cfg'):
 class Thermostat(object):
     def __init__(self, port, speed=19200):
         self.sensor = ArduinoSensor(port, speed)
-        self.dead_zone = 1
+        self.dead_zone = 0.5 
 
     def check(self):
         sense = self.sensor.read_frame()
@@ -76,11 +78,11 @@ class Thermostat(object):
 
 
 def main():
-    thermostat = Thermostat('COM7', speed=19200)
+    thermostat = Thermostat('COM3', speed=19200)
     miners = load_mining_config()
     
     last_checked_time = 0
-    control_interval = 60  # Seconds
+    control_interval = 10  # Seconds
     while True:
         try:
             check_keyboard()
@@ -91,13 +93,14 @@ def main():
             last_checked_time = time()
             temperature, control = thermostat.check()
             control_string = {0: 'OK', 1: 'too high', -1: 'too low'}[control]
-            print '---- Temperature check ----'
+            curtime = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            print '---- Temperature check %s ----' % curtime
             print 'Current temp:', temperature, 'C,', control_string
             for name, miner in miners.iteritems():
-                if miner.started() and not miner.paused() and control > 0:
+                if control > 0 and (miner.started() and not miner.paused()):
                     print 'Pausing', name
                     miner.pause()
-                elif miner.paused() and control < 0:
+                elif control < 0 and (miner.paused() or not miner.started()):
                     print 'Resuming', name
                     miner.start()
             print '---------------------------'
