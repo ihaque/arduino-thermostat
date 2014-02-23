@@ -26,21 +26,28 @@ class ArduinoSensor(object):
         port.open()
         self.port = port
 
-    def read_frame(self):
+    def read_frame(self, _retry_count=0):
+        if _retry_count > 3:
+            raise IOError('Error communicating with Arduino')
+
         # Clear the existing buffer to sync up
         waiting = self.port.inWaiting()
         if waiting:
             self.port.read(waiting)
 
         frame = None
+        max_delay = 2  # seconds
         while frame is None:
             self.port.write('read')
             waiting_bytes = 0
             last_waiting = -1
+            read_start = time()
             while waiting_bytes != last_waiting or waiting_bytes == 0:
                 sleep(0.1)
                 last_waiting = waiting_bytes
                 waiting_bytes = self.port.inWaiting()
+                if time() - read_start > max_delay:
+                    return self.read_frame(_retry_count + 1)
             data = self.port.read(waiting_bytes)
             if not (data.startswith('{') and data.endswith('}\n')):
                 print >>stderr, 'Bad data, retrying:', data
