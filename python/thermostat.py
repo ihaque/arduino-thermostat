@@ -82,7 +82,7 @@ def main():
     miners = load_mining_config()
     
     last_checked_time = 0
-    control_interval = 10  # Seconds
+    control_interval = 60  # Seconds
     while True:
         try:
             check_keyboard()
