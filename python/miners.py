@@ -117,7 +117,7 @@ class RemoteCGMiner(Miner):
                    for gpu in status['DEVS'])
 
 
-class CGMiner(object):
+class CGMiner(Miner):
     def __init__(self, executable, serverURI, username, password,
                  work_unit, thread_concurrency,
                  delay=5,
