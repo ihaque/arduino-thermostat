@@ -2,6 +2,7 @@ from contextlib import closing
 import json
 from socket import create_connection
 from socket import timeout
+from time import sleep
 from subprocess_utils import RestartableProcess
 
 class Miner(object):
@@ -116,27 +117,68 @@ class RemoteCGMiner(Miner):
                    for gpu in status['DEVS'])
 
 
-class CGMiner(RestartableProcess, RemoteCGMiner):
+class CGMiner(object):
     def __init__(self, executable, serverURI, username, password,
+                 work_unit, thread_concurrency,
+                 delay=5,
                  pause_intensity=8, full_intensity=18):
-        args = [executable,
-                '-o', serverURI,
-                '-u', username,
-                '-p', password,
-                '--scrypt',
-                '--api-listen',
-                '--api-allow', 'W:127.0.0.1']
-        super(CGMiner, self).__init__(args)
-        super(RestartableProcess, self).__init__(
-            address='127.0.0.1',
-            pause_intensity=pause_intensity,
-            full_intensity=full_intensity)
-
+        self.delay = float(delay)
+        self.pause_intensity = int(pause_intensity)
+        self.full_intensity = int(full_intensity)
+        self.miner_api = None
+        self.process = RestartableProcess([
+            executable,
+            '-o', serverURI,
+            '-u', username,
+            '-p', password,
+            '-w', work_unit,
+            '--thread-concurrency', thread_concurrency,
+            '--scrypt',
+            '--text-only',
+            '--api-listen',
+            '--api-allow', 'W:127.0.0.1'])
+        
     def start(self):
-        if not self.started():
-            super(RestartableProcess, self).start()
-        super(RemoteCGMiner, self).start()
+        if (self.process.started() and self.miner_api is not None
+                and self.miner_api.started()):
+            return
 
+        if not self.process.started():
+            self.process.start()
+            sleep(self.delay)
+
+        if self.miner_api is None:
+            self.miner_api = RemoteCGMiner(
+                address='127.0.0.1',
+                pause_intensity=self.pause_intensity,
+                full_intensity=self.full_intensity)
+        self.miner_api.start()
+                
     def stop(self):
-        super(RemoteCGMiner, self).stop()
-        super(RestartableProcess, self).stop()
+        if self.miner_api is not None:
+            self.miner_api.stop()
+            sleep(self.delay)
+            self.miner_api = None
+        self.process.stop()
+        
+    def pause(self):
+        print 'pausing at intensity', self.pause_intensity
+        if self.pause_intensity == 0:
+            self.stop()
+        else:
+            self.miner_api.pause()
+
+    def status(self):
+        if not self.started():
+            return ''
+        return self.miner_api.status()
+
+    def started(self):
+        return (self.process.started() and
+                self.miner_api is not None and
+                self.miner_api.started())
+
+    def paused(self):
+        return (self.process.started() and
+                self.miner_api is not None and
+                self.miner_api.paused())
